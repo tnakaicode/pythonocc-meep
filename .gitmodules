@@ -1,0 +1,3 @@
+[submodule "src_meep"]
+	path = src_meep
+	url = https://github.com/NanoComp/meep.git
