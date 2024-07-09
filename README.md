@@ -23,6 +23,12 @@ pip install nlopt
 pip install PyMieScatt
 
 conda install -c conda-forge pymeep=*=mpi_mpich*
+
+conda install -c conda-forge pythonocc-core=7.7.2
+conda install -c conda-forge freecad
+pip install "git+https://github.com/tpaviot/pythonocc-utils.git"
+
+conda env export > meep_occt.yaml
 ```
 
 ## meep
