@@ -225,24 +225,24 @@ mask_top = pq_top.contains_points(points).reshape(X.shape)
 mask_bottom = pq_bottom.contains_points(points).reshape(X.shape)
 pec_flag[mask_top | mask_bottom | wall_mask] = 1.0
 
+# 💡 メタデータは2行目の「タイトル識別子」に1行で埋め込む（最大256文字）
+metadata = f"wave:{waveform_type} freq:{frequency} volt:{voltage_amplitude} ramp:{ramp_time} res:{resolution}cx:{cell_x} cy:{cell_y}"
+metadata = metadata[:255] # 安全のため256文字未満にカット
+
 vtk_path = tempdir + "test_meep_rf.vtk"
 with open(vtk_path, "w") as f:
-    f.write("# vtk DataFile Version 3.0\n")
-    f.write("Meep RF simulation result with geometry and input conditions\n")
-    f.write("ASCII\n")
-    f.write("# waveform_type: {}\n".format(waveform_type))
-    f.write("# frequency: {}\n".format(frequency))
-    f.write("# voltage_amplitude: {}\n".format(voltage_amplitude))
-    f.write("# ramp_time: {}\n".format(ramp_time))
-    f.write("# resolution: {}\n".format(resolution))
-    f.write("# cell_x: {}\n".format(cell_x))
-    f.write("# cell_y: {}\n".format(cell_y))
-    f.write("# pml_x_thickness: {}\n".format(2.0))
-    f.write("# simulation_time: {}\n".format(200.0))
-    f.write("DATASET STRUCTURED_POINTS\n")
+    f.write("# vtk DataFile Version 3.0\n")         # 1行目: 決まり文句
+    f.write(f"{metadata}\n")                        # 2行目: タイトル（ここに情報を集約）
+    f.write("ASCII\n")                              # 3行目: データ形式
+    f.write("DATASET STRUCTURED_POINTS\n")          # 4行目: ⚠️ ASCIIの直後は必ずこれ！
     f.write("DIMENSIONS {} {} 1\n".format(nx, ny))
     f.write("ORIGIN {} {} 0.0\n".format(-cell_x / 2, -cell_y / 2))
-    f.write("SPACING {} {} 1.0\n".format(cell_x / nx, cell_y / ny))
+    
+    # 💡 POINT（格子点）のデータなので、間隔は (n - 1) で割るのがVTKの正確な仕様です
+    dx = cell_x / (nx - 1) if nx > 1 else 1.0
+    dy = cell_y / (ny - 1) if ny > 1 else 1.0
+    f.write("SPACING {} {} 1.0\n".format(dx, dy))
+    
     f.write("POINT_DATA {}\n".format(nx * ny))
     f.write("SCALARS E_magnitude float 1\n")
     f.write("LOOKUP_TABLE default\n")
@@ -264,4 +264,5 @@ with open(vtk_path, "w") as f:
     for j in range(ny):
         for i in range(nx):
             f.write(f"{float(pec_flag[i, j]):.1f}\n")
+            
 print(f"Saved: {vtk_path}")
