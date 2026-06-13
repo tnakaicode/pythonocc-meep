@@ -99,7 +99,7 @@ pml_layers = [mp.PML(2.0, direction=mp.X)]
 
 
 # ==========================================
-# 6. シミュレーション実行と可視化（新XML形式 VTI + PVD一本化）
+# 6. シミュレーション実行と可視化（MPI並列・PVD一本化・XML対応版）
 # ==========================================
 
 step_counter = 0
@@ -112,77 +112,78 @@ time_history = []
 def output_vti_step(sim):
     global step_counter, vtk_initialized, pec_flag, nx, ny, dx, dy, time_history
     
-    # 1. 電界データの取得
+    # 🚨【重要】データの取得は、デッドロックを防ぐため【全プロセス】で同時に呼び出します
     ex_data = sim.get_array(center=mp.Vector3(), size=sim.cell_size, component=mp.Ex)
     ey_data = sim.get_array(center=mp.Vector3(), size=sim.cell_size, component=mp.Ey)
     e_mag = np.sqrt(ex_data**2 + ey_data**2)
     
-    # 2. 幾何形状やサイズの初期化（初回のみ）
-    if not vtk_initialized:
-        nx, ny = e_mag.shape
-        x_coords = np.linspace(-cell_x / 2, cell_x / 2, nx)
-        y_coords = np.linspace(-cell_y / 2, cell_y / 2, ny)
-        X_local, Y_local = np.meshgrid(x_coords, y_coords, indexing='ij')
-        
-        pec_flag = np.zeros_like(e_mag)
-        wall_mask = (Y_local >= cell_y / 2 - wall_thickness) | (Y_local <= -cell_y / 2 + wall_thickness)
-        pq_top = Path([(v.x, v.y) for v in top_vertices])
-        pq_bottom = Path([(v.x, v.y) for v in bottom_vertices])
-        points = np.vstack((X_local.ravel(), Y_local.ravel())).T
-        mask_top = pq_top.contains_points(points).reshape(X_local.shape)
-        mask_bottom = pq_bottom.contains_points(points).reshape(X_local.shape)
-        pec_flag[mask_top | mask_bottom | wall_mask] = 1.0
-        
-        dx = cell_x / (nx - 1) if nx > 1 else 1.0
-        dy = cell_y / (ny - 1) if ny > 1 else 1.0
-        vtk_initialized = True
+    # 🚨【重要】ここから下は、ファイルの競合・破損を防ぐため【マスタープロセスのみ】が実行します
+    if mp.am_master():
+        # 1. 幾何形状やサイズの初期化（初回のみ）
+        if not vtk_initialized:
+            nx, ny = e_mag.shape
+            x_coords = np.linspace(-cell_x / 2, cell_x / 2, nx)
+            y_coords = np.linspace(-cell_y / 2, cell_y / 2, ny)
+            X_local, Y_local = np.meshgrid(x_coords, y_coords, indexing='ij')
+            
+            pec_flag = np.zeros_like(e_mag)
+            wall_mask = (Y_local >= cell_y / 2 - wall_thickness) | (Y_local <= -cell_y / 2 + wall_thickness)
+            pq_top = Path([(v.x, v.y) for v in top_vertices])
+            pq_bottom = Path([(v.x, v.y) for v in bottom_vertices])
+            points = np.vstack((X_local.ravel(), Y_local.ravel())).T
+            mask_top = pq_top.contains_points(points).reshape(X_local.shape)
+            mask_bottom = pq_bottom.contains_points(points).reshape(X_local.shape)
+            pec_flag[mask_top | mask_bottom | wall_mask] = 1.0
+            
+            dx = cell_x / (nx - 1) if nx > 1 else 1.0
+            dy = cell_y / (ny - 1) if ny > 1 else 1.0
+            vtk_initialized = True
 
-    current_time = sim.meep_time()
-    
-    # 💡 PVDと親密に連携できるXML形式の拡張子「.vti」で保存
-    filename_local = f"test_meep_rf_{step_counter:06d}.vti"
-    vti_path = f"{tempdir}{filename_local}"
-    time_history.append((current_time, filename_local))
-    
-    # 💡 完全なXML形式 (VTI ASCII) でデータを高速書き出し
-    with open(vti_path, "w") as f:
-        f.write('<?xml version="1.0"?>\n')
-        f.write('<VTKFile type="ImageData" version="0.1" byte_order="LittleEndian">\n')
-        f.write(f'  <ImageData WholeExtent="0 {nx-1} 0 {ny-1} 0 0" Origin="{-cell_x/2} {-cell_y/2} 0" Spacing="{dx} {dy} 1">\n')
-        f.write(f'    <Piece Extent="0 {nx-1} 0 {ny-1} 0 0">\n')
-        f.write('      <PointData Scalars="E_magnitude">\n')
+        current_time = sim.meep_time()
         
-        # 🧪 1. E_magnitude の書き込み
-        f.write('        <DataArray type="Float32" Name="E_magnitude" format="ascii">\n')
-        for j in range(ny):
-            f.write(" ".join(f"{float(e_mag[i, j]):.6f}" for i in range(nx)) + "\n")
-        f.write('        </DataArray>\n')
+        filename_local = f"test_meep_rf_{step_counter:06d}.vti"
+        vti_path = f"{tempdir}{filename_local}"
+        time_history.append((current_time, filename_local))
         
-        # 🧪 2. Ex の書き込み
-        f.write('        <DataArray type="Float32" Name="Ex" format="ascii">\n')
-        for j in range(ny):
-            f.write(" ".join(f"{float(ex_data[i, j]):.6f}" for i in range(nx)) + "\n")
-        f.write('        </DataArray>\n')
-        
-        # 🧪 3. Ey の書き込み
-        f.write('        <DataArray type="Float32" Name="Ey" format="ascii">\n')
-        for j in range(ny):
-            f.write(" ".join(f"{float(ey_data[i, j]):.6f}" for i in range(nx)) + "\n")
-        f.write('        </DataArray>\n')
-        
-        # 🧪 4. Geometry_PEC の書き込み
-        f.write('        <DataArray type="Float32" Name="Geometry_PEC" format="ascii">\n')
-        for j in range(ny):
-            f.write(" ".join(f"{float(pec_flag[i, j]):.1f}" for i in range(nx)) + "\n")
-        f.write('        </DataArray>\n')
-        
-        f.write('      </PointData>\n')
-        f.write('    </Piece>\n')
-        f.write('  </ImageData>\n')
-        f.write('</VTKFile>\n')
-                
-    print(f"Saved: {vti_path} (t={current_time:.2f})")
-    step_counter += 1
+        # 完全なXML形式 (VTI ASCII) でデータをクリーンに書き出し
+        with open(vti_path, "w") as f:
+            f.write('<?xml version="1.0"?>\n')
+            f.write('<VTKFile type="ImageData" version="0.1" byte_order="LittleEndian">\n')
+            f.write(f'  <ImageData WholeExtent="0 {nx-1} 0 {ny-1} 0 0" Origin="{-cell_x/2} {-cell_y/2} 0" Spacing="{dx} {dy} 1">\n')
+            f.write(f'    <Piece Extent="0 {nx-1} 0 {ny-1} 0 0">\n')
+            f.write('      <PointData Scalars="E_magnitude">\n')
+            
+            # 1. E_magnitude の書き込み
+            f.write('        <DataArray type="Float32" Name="E_magnitude" format="ascii">\n')
+            for j in range(ny):
+                f.write(" ".join(f"{float(e_mag[i, j]):.6f}" for i in range(nx)) + "\n")
+            f.write('        </DataArray>\n')
+            
+            # 2. Ex の書き込み
+            f.write('        <DataArray type="Float32" Name="Ex" format="ascii">\n')
+            for j in range(ny):
+                f.write(" ".join(f"{float(ex_data[i, j]):.6f}" for i in range(nx)) + "\n")
+            f.write('        </DataArray>\n')
+            
+            # 3. Ey の書き込み
+            f.write('        <DataArray type="Float32" Name="Ey" format="ascii">\n')
+            for j in range(ny):
+                f.write(" ".join(f"{float(ey_data[i, j]):.6f}" for i in range(nx)) + "\n")
+            f.write('        </DataArray>\n')
+            
+            # 4. Geometry_PEC の書き込み
+            f.write('        <DataArray type="Float32" Name="Geometry_PEC" format="ascii">\n')
+            for j in range(ny):
+                f.write(" ".join(f"{float(pec_flag[i, j]):.1f}" for i in range(nx)) + "\n")
+            f.write('        </DataArray>\n')
+            
+            f.write('      </PointData>\n')
+            f.write('    </Piece>\n')
+            f.write('  </ImageData>\n')
+            f.write('</VTKFile>\n')
+                    
+        print(f"Saved: {vti_path} (t={current_time:.2f})")
+        step_counter += 1
 
 
 # --- シミュレーション実行 ---
@@ -200,20 +201,21 @@ sim.run(
 )
 
 # ==========================================
-# 🛠️ PVD ファイルの作成（XML完全準拠版）
+# 🛠️ PVD ファイルの作成（マスタープロセスのみ実行）
 # ==========================================
-pvd_path = f"{tempdir}test_meep_rf.pvd"
-with open(pvd_path, "w") as f:
-    f.write('<?xml version="1.0"?>\n')
-    f.write('<VTKFile type="Collection" version="0.1" byte_order="LittleEndian">\n')
-    f.write('  <Collection>\n')
-    for t, fname in time_history:
-        f.write(f'    <DataSet timestep="{t}" group="" part="0" file="{fname}"/>\n')
-    f.write('  </Collection>\n')
-    f.write('</VTKFile>\n')
+if mp.am_master():
+    pvd_path = f"{tempdir}test_meep_rf.pvd"
+    with open(pvd_path, "w") as f:
+        f.write('<?xml version="1.0"?>\n')
+        f.write('<VTKFile type="Collection" version="0.1" byte_order="LittleEndian">\n')
+        f.write('  <Collection>\n')
+        for t, fname in time_history:
+            f.write(f'    <DataSet timestep="{t}" group="" part="0" file="{fname}"/>\n')
+        f.write('  </Collection>\n')
+        f.write('</VTKFile>\n')
 
-print(f"\n [大成功] XML対応のPVDファイルが完成しました！")
-print(f" ParaViewでは、このファイル1つだけを開いてください: {pvd_path}")
+    print(f"\n [大成功] XML対応のPVDファイルが完全に完成しました！")
+    print(f" ParaViewでは、このファイル1つだけを開いてください: {pvd_path}")
 
 # ==========================================
 # 6. 電界（Ex, Ey）データの抽出と絶対値の計算
