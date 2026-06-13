@@ -12,6 +12,12 @@ wget -r -np -l 0 https://flex.phys.tohoku.ac.jp/~maru/drive-open/
 install meep
 
 ```bash
+# 1. 一度アンマウントする
+sudo umount /mnt/win_temp
+
+# 2. ユーザー「cae」を所有者として指定して再マウントする
+sudo mount -t cifs -o username=USER,password=PASS,uid=cae,gid=cae,file_mode=0777,dir_mode=0777 //192.168.3.102/temp /mnt/win_temp
+
 Xvfb :99 -screen 0 1024x768x24 &
 xvfb-run --auto-servernum --server-args="-screen 0 1024x768x24"
 
