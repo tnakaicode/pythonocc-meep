@@ -5,17 +5,10 @@ import matplotlib.pyplot as plt
 # ==========================================
 # 1. 電圧信号（時間波形 V(t)）の定義
 # ==========================================
-# Pythonの関数として、任意の入力電圧のタイムチャートを定義できます。
 def custom_voltage_signal(t):
-    # 例：ゆっくり立ち上がって消える、高周波のガウシアンパルス信号
-    # （実験データのCSVなどから補間して波形を作ることも可能です）
+    # 【修正】パルスではなく、ずっとパタパタと入れ替わる高周波電圧（交流）にし続けます
     freq = 0.15          # 高周波の周波数
-    pulse_center = 40.0  # ピーク時間
-    pulse_width = 12.0   # パルス幅
-    
-    # 交流成分 × 時間エンベロープ
-    return np.sin(2 * np.pi * freq * t) * np.exp(-((t - pulse_center) / pulse_width)**2)
-
+    return np.sin(2 * np.pi * freq * t)
 
 # ==========================================
 # 2. 計算領域と解像度
@@ -85,8 +78,8 @@ ey_data = sim.get_array(component=mp.Ey)
 plt.figure(figsize=(10, 5))
 sim.plot2D() # 幾何構造の描画（テーパー形状が確認できます）
 
-# 電界分布を重ね書き（エッジ付近の強い電界が見えるよう vmin/vmax を少し絞ります）
-plt.imshow(ey_data.T, cmap='RdBu', vmin=-0.2, vmax=0.2,
+# 電界分布を重ね書き（残っている電界の最大・最小に合わせて自動スケール）
+plt.imshow(ey_data.T, cmap='RdBu', vmin=np.min(ey_data), vmax=np.max(ey_data),
            extent=[-cell_x/2, cell_x/2, -cell_y/2, cell_y/2], origin='lower', alpha=0.6)
 plt.colorbar(label="Electric Field (Ey)")
 plt.title("Realistic RF Feed with Custom Electrode Shape & Signal")
