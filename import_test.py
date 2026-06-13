@@ -1,6 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+plt.figure(figsize=(6, 6))
+plt.plot([0, 1], [0, 1], label="Line")
+plt.title("Test Plot")
+plt.xlabel("X-axis")
+plt.ylabel("Y-axis")
+plt.savefig("test_plot.png")
+
+
 # this try except attempts to import freecad (lowercase) which is the conda
 # package name for FreeCAD (mixed case) upon import the conda package appends
 # the sys path for Conda installed FreeCAD, consequently FreeCAD can then be
@@ -12,16 +20,19 @@ except ImportError:
 
 from OCC.Core.gp import gp_Pnt
 
-#from OCC.Display.SimpleGui import init_display
+from OCC.Display.SimpleGui import init_display
+
+display, start_display, add_menu, add_function_to_menu = init_display()
 
 from OCC.Display.OCCViewer import Viewer3d
+
 # 形状作成のためのモジュール（例としてBoxを作成）
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
 
 # 1. 画面を表示しないレンダラーを初期化
-display = Viewer3d()
-display.Create()
-display.SetModeShaded()
+# display = Viewer3d()
+# display.Create()
+# display.SetModeShaded()
 
 # 2. 3Dモデル（形状）を作成してディスプレイに登録
 # (ここはご自身の作成した形状に置き換えてください)
