@@ -1,21 +1,35 @@
 import meep as mp
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 # ==========================================
 # 1. 電圧信号（時間波形 V(t)）の定義
 # ==========================================
-def custom_voltage_signal(t):
-    # 【修正】パルスではなく、ずっとパタパタと入れ替わる高周波電圧（交流）にし続けます
-    freq = 0.15          # 高周波の周波数
-    return np.sin(2 * np.pi * freq * t)
+frequency = 0.15          # ソースの基本周波数
+voltage_amplitude = 1.0   # 電圧振幅
+waveform_type = "sine"   # 任意波形: "sine", "square", "triangle", "gaussian_pulse", またはユーザー定義
+
+# 任意波形をここで定義します。必要に応じてこの関数を編集してください。
+def voltage_waveform(t):
+    if waveform_type == "sine":
+        return voltage_amplitude * np.sin(2 * np.pi * frequency * t)
+    elif waveform_type == "square":
+        return voltage_amplitude * np.sign(np.sin(2 * np.pi * frequency * t))
+    elif waveform_type == "triangle":
+        return voltage_amplitude * (2 / np.pi) * np.arcsin(np.sin(2 * np.pi * frequency * t))
+    elif waveform_type == "gaussian_pulse":
+        return voltage_amplitude * np.exp(-((t - 50) / 10) ** 2) * np.sin(2 * np.pi * frequency * t)
+    else:
+        # カスタム波形をここに直接定義してください。
+        return voltage_amplitude * np.sin(2 * np.pi * frequency * t)
 
 # ==========================================
 # 2. 計算領域と解像度
 # ==========================================
 resolution = 25
 cell_x = 16.0
-cell_y = 6.0
+cell_y = 8.0
 cell = mp.Vector3(cell_x, cell_y, 0)
 
 # ==========================================
@@ -23,21 +37,22 @@ cell = mp.Vector3(cell_x, cell_y, 0)
 # ==========================================
 geometry = []
 
-# ① 上部電極（反時計回りに修正：左上 → 右上 → 右下 → 左下 の順）
+# ① 上部電極
+# 反時計回りに頂点を指定することで幾何形状が正しく認識されます。
 top_vertices = [
-    mp.Vector3(-1.5,  2.5, 0),  # ① 根元 左 (左上)
-    mp.Vector3( 1.5,  2.5, 0),  # ② 根元 右 (右上)
-    mp.Vector3( 0.3,  0.8, 0),  # ③ 先端 右 (右下)
-    mp.Vector3(-0.3,  0.8, 0)   # ④ 先端 左 (左下)
+    mp.Vector3(-1.5,  2.5, 0),
+    mp.Vector3( 1.5,  2.5, 0),
+    mp.Vector3( 0.3,  0.8, 0),
+    mp.Vector3(-0.3,  0.8, 0)
 ]
 geometry.append(mp.Prism(vertices=top_vertices, height=mp.inf, material=mp.metal))
 
-# ② 下部電極（こちらは元から反時計回りなのでそのままでOK：左下 → 右下 → 右上 → 左上 の順）
+# ② 下部電極
 bottom_vertices = [
-    mp.Vector3(-1.5, -2.5, 0),  # ① 根元 左 (左下)
-    mp.Vector3( 1.5, -2.5, 0),  # ② 根元 右 (右下)
-    mp.Vector3( 0.3, -0.8, 0),  # ③ 先端 右 (右上)
-    mp.Vector3(-0.3, -0.8, 0)   # ④ 先端 左 (左上)
+    mp.Vector3(-1.5, -2.5, 0),
+    mp.Vector3( 1.5, -2.5, 0),
+    mp.Vector3( 0.3, -0.8, 0),
+    mp.Vector3(-0.3, -0.8, 0)
 ]
 geometry.append(mp.Prism(vertices=bottom_vertices, height=mp.inf, material=mp.metal))
 
@@ -45,16 +60,17 @@ geometry.append(mp.Prism(vertices=bottom_vertices, height=mp.inf, material=mp.me
 # ==========================================
 # 4. 給電点（Feed Port）の配置（隙間に配置）
 # ==========================================
-# 上壁（GND）と電極の隙間（Y=2.5 〜 3.0 の間）に電圧信号を印加します。
+# 上部電極と下部電極の隙間にカスタム波形ソースを置きます。
+# `voltage_waveform` の内容を変更すれば任意波形を入力できます。
 src = mp.Source(
-    mp.CustomSource(src_func=custom_voltage_signal),
+    mp.CustomSource(src_func=voltage_waveform, center_frequency=frequency, fwidth=0.01),
     component=mp.Ey,
-    center=mp.Vector3(0, 2.75, 0),  # 隙間の中心
-    size=mp.Vector3(1.0, 0.5, 0)    # 隙間を埋めるサイズ
+    center=mp.Vector3(0, 2.75, 0),
+    size=mp.Vector3(1.0, 0.4, 0)
 )
 
-# 左右のみPML（上下の端は自動的に完全導体の導波管壁になります）
-pml_layers = [mp.PML(1.0, direction=mp.X)]
+# 全周をPMLで囲み、不要な反射を低減します。
+pml_layers = [mp.PML(1.0)]
 
 
 # ==========================================
@@ -69,39 +85,42 @@ sim = mp.Simulation(
 )
 
 # 信号が電極を伝わり、導波管内に広がっていく様子を計算
-sim.run(until=100)
+sim.run(until=200)
 
 # ==========================================
-# 5. 電界（Ex, Ey）データの抽出と絶対値の計算
+# 6. 電界（Ex, Ey）データの抽出と絶対値の計算
 # ==========================================
-# 【修正①】EyだけでなくExも取得して絶対値を計算します。
-# 電界ベクトルの絶対値 Magnitude |E| = sqrt(Ex^2 + Ey^2) を計算
-ey_data = sim.get_array(component=mp.Ey)
 ex_data = sim.get_array(component=mp.Ex)
-e_mag = np.sqrt(ey_data**2 + ex_data**2)
+ey_data = sim.get_array(component=mp.Ey)
+e_mag = np.sqrt(ex_data**2 + ey_data**2)
 
-# ==============================================================================
-# 変更後：等高線プロットと電極の同時可視化
-# ==============================================================================
-plt.figure(figsize=(10, 4.5))
+# 座標グリッドを再構築
+nx, ny = ex_data.shape
+x_coords = np.linspace(-cell_x / 2, cell_x / 2, nx)
+y_coords = np.linspace(-cell_y / 2, cell_y / 2, ny)
+X, Y = np.meshgrid(x_coords, y_coords, indexing='ij')
 
-# 1. 先に等高線（contourf）を描画して空間の電界強度分布をプロット
-# （※データの配列サイズに合わせた座標格子 X, Y を使用してください）
-X, Y = np.meshgrid(np.linspace(-8, 8, ex_data.shape[0]), np.linspace(-3, 3, ex_data.shape[1]), indexing='ij')
-contour = plt.contourf(X, Y, e_mag, levels=10, cmap='jet', vmin=0, vmax=0.64)
-
-# 2. その上から Meep の幾何構造（電極）を重ね書き
-# plot2Dを後から呼び出すことで、電極形状（白い領域）が最前面に描画されます
-sim.plot2D(fill_quantities=False, intensities=False)
-
-# 3. 必要に応じて電極の輪郭線（PECマトリクスなど）を黒線で強調する場合
-# （pec_flag が導体部=1, 空間=0 のバイナリデータの場合）
-plt.contour(X, Y, e_mag, levels=[0.5], colors='black', linewidths=1.5)
-
-plt.colorbar(contour, label="Electric Field Magnitude (|E|)")
-plt.title("Realistic RF Feed with Custom Electrode Shape & Contourf Plot")
+# ===============================================================================
+# 7. 結果の表示
+# ===============================================================================
+plt.figure(figsize=(10, 5))
+contour = plt.contourf(X, Y, e_mag, levels=40, cmap='jet')
+plt.colorbar(contour, label="Electric Field Magnitude |E|")
+plt.title("Electric Field Magnitude (|E|) with Metal Electrodes")
 plt.xlabel("X")
 plt.ylabel("Y")
-plt.xlim(-8, 8)
-plt.ylim(-3, 3)
-plt.savefig("test_meep_rf.png")
+plt.xlim(-cell_x / 2, cell_x / 2)
+plt.ylim(-cell_y / 2, cell_y / 2)
+
+plt.gca().add_patch(patches.Polygon(
+    [(v.x, v.y) for v in top_vertices], closed=True,
+    facecolor='none', edgecolor='white', linewidth=1.5
+))
+plt.gca().add_patch(patches.Polygon(
+    [(v.x, v.y) for v in bottom_vertices], closed=True,
+    facecolor='none', edgecolor='white', linewidth=1.5
+))
+
+plt.savefig("test_meep_rf.png", dpi=200)
+plt.close()
+print("Saved: test_meep_rf.png")
