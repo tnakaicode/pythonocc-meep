@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import meep as mp
 
 plt.figure(figsize=(6, 6))
 plt.plot([0, 1], [0, 1], label="Line")

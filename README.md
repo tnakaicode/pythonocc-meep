@@ -15,6 +15,7 @@ install meep
 Xvfb :99 -screen 0 1024x768x24 &
 xvfb-run --auto-servernum --server-args="-screen 0 1024x768x24"
 
+conda create -n meep -c conda-forge python=3.12 pymeep pythonocc-core -y
 conda create -c conda-forge -n meep python=3.13 pymeep=*=mpi_mpich* 
 #conda install r-nloptr
 pip install meshio[all]
