@@ -25,28 +25,24 @@ cell_x = 16.0
 cell_y = 6.0
 cell = mp.Vector3(cell_x, cell_y, 0)
 
-
 # ==========================================
-# 3. 任意の電極形状（多角形）の定義
+# 3. 任意の電極形状の定義（壁から少し離す）
 # ==========================================
-# mp.Prism を使うと、頂点（vertices）を結んで好きな形状の金属を作れます。
-# ここでは「先端に電界が集中するテーパー形状」を作ります。
-
 geometry = []
 
-# ① 上部電極（導波管の上壁 Y=3.0 から中央へ突き出る）
+# ① 上部電極（根元を Y=2.5 にして、上壁 Y=3.0 との間に隙間を作ります）
 top_vertices = [
-    mp.Vector3(-1.5,  3.0, 0),  # 根元 左
-    mp.Vector3(-0.3,  0.8, 0),  # 先端 左（細くなっている）
+    mp.Vector3(-1.5,  2.5, 0),  # 根元 左
+    mp.Vector3(-0.3,  0.8, 0),  # 先端 左
     mp.Vector3( 0.3,  0.8, 0),  # 先端 右
-    mp.Vector3( 1.5,  3.0, 0)   # 根元 右
+    mp.Vector3( 1.5,  2.5, 0)   # 根元 右
 ]
 geometry.append(mp.Prism(vertices=top_vertices, height=mp.inf, material=mp.metal))
 
-# ② 下部電極（下壁 Y=-3.0 から突き出る対向電極）
+# ② 下部電極（こちらも下壁 Y=-3.0 との間に隙間を作ります）
 bottom_vertices = [
-    mp.Vector3(-1.5, -3.0, 0),  # 根元 左
-    mp.Vector3( 1.5, -3.0, 0),  # 根元 右
+    mp.Vector3(-1.5, -2.5, 0),  # 根元 左
+    mp.Vector3( 1.5, -2.5, 0),  # 根元 右
     mp.Vector3( 0.3, -0.8, 0),  # 先端 右
     mp.Vector3(-0.3, -0.8, 0)   # 先端 左
 ]
@@ -54,17 +50,14 @@ geometry.append(mp.Prism(vertices=bottom_vertices, height=mp.inf, material=mp.me
 
 
 # ==========================================
-# 4. 給電点（Feed Port）の配置
+# 4. 給電点（Feed Port）の配置（隙間に配置）
 # ==========================================
-# 【最重要】光源を隙間ではなく、上部電極の「根元の壁際」に小さく配置します。
-# これにより、高周波電流がまず金属（mp.metal）の表面を伝わり、
-# 電極形状に応じて自然に歪みながら、導波管の空間へ放射されます（プローブ給電の模倣）。
-
+# 上壁（GND）と電極の隙間（Y=2.5 〜 3.0 の間）に電圧信号を印加します。
 src = mp.Source(
-    mp.CustomSource(src_func=custom_voltage_signal), # 上で定義したV(t)関数を指定
+    mp.CustomSource(src_func=custom_voltage_signal),
     component=mp.Ey,
-    center=mp.Vector3(0, 2.9, 0),   # 電極の根元（上壁のすぐ下）
-    size=mp.Vector3(0.4, 0.1, 0)    # 給電ピンのような小さなサイズ
+    center=mp.Vector3(0, 2.75, 0),  # 隙間の中心
+    size=mp.Vector3(1.0, 0.5, 0)    # 隙間を埋めるサイズ
 )
 
 # 左右のみPML（上下の端は自動的に完全導体の導波管壁になります）
