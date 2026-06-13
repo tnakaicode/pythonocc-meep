@@ -2,33 +2,41 @@ import meep as mp
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.path import Path
 
 # ==========================================
 # 1. 電圧信号（時間波形 V(t)）の定義
 # ==========================================
 frequency = 0.15          # ソースの基本周波数
 voltage_amplitude = 1.0   # 電圧振幅
-waveform_type = "sine"   # 任意波形: "sine", "square", "triangle", "gaussian_pulse", またはユーザー定義
+waveform_type = "sine"   # 任意波形: "sine", "square", "triangle", "gaussian_pulse", "custom"
+ramp_time = 20.0         # 立ち上がり時間（過渡応答抑制用）
 
 # 任意波形をここで定義します。必要に応じてこの関数を編集してください。
 def voltage_waveform(t):
+    if t < 0:
+        return 0.0
+    envelope = 1.0 - np.exp(-t / ramp_time)
     if waveform_type == "sine":
-        return voltage_amplitude * np.sin(2 * np.pi * frequency * t)
+        value = voltage_amplitude * np.sin(2 * np.pi * frequency * t)
     elif waveform_type == "square":
-        return voltage_amplitude * np.sign(np.sin(2 * np.pi * frequency * t))
+        value = voltage_amplitude * np.sign(np.sin(2 * np.pi * frequency * t))
     elif waveform_type == "triangle":
-        return voltage_amplitude * (2 / np.pi) * np.arcsin(np.sin(2 * np.pi * frequency * t))
+        value = voltage_amplitude * (2 / np.pi) * np.arcsin(np.sin(2 * np.pi * frequency * t))
     elif waveform_type == "gaussian_pulse":
-        return voltage_amplitude * np.exp(-((t - 50) / 10) ** 2) * np.sin(2 * np.pi * frequency * t)
+        value = voltage_amplitude * np.exp(-((t - 50) / 10) ** 2) * np.sin(2 * np.pi * frequency * t)
+    elif waveform_type == "custom":
+        # ここに任意のユーザー波形を実装してください。
+        value = voltage_amplitude * (np.sin(2 * np.pi * frequency * t) + 0.5 * np.sin(4 * np.pi * frequency * t))
     else:
-        # カスタム波形をここに直接定義してください。
-        return voltage_amplitude * np.sin(2 * np.pi * frequency * t)
+        value = voltage_amplitude * np.sin(2 * np.pi * frequency * t)
+    return envelope * value
 
 # ==========================================
 # 2. 計算領域と解像度
 # ==========================================
-resolution = 25
-cell_x = 16.0
+resolution = 30
+cell_x = 20.0
 cell_y = 8.0
 cell = mp.Vector3(cell_x, cell_y, 0)
 
@@ -56,25 +64,40 @@ bottom_vertices = [
 ]
 geometry.append(mp.Prism(vertices=bottom_vertices, height=mp.inf, material=mp.metal))
 
+# ==========================================
+# 4. 導波管壁としての上下金属ブロック追加
+# ==========================================
+wall_thickness = 0.5
+geometry.append(mp.Block(
+    center=mp.Vector3(0, cell_y / 2 - wall_thickness / 2, 0),
+    size=mp.Vector3(cell_x, wall_thickness, mp.inf),
+    material=mp.metal,
+))
+geometry.append(mp.Block(
+    center=mp.Vector3(0, -cell_y / 2 + wall_thickness / 2, 0),
+    size=mp.Vector3(cell_x, wall_thickness, mp.inf),
+    material=mp.metal,
+))
 
 # ==========================================
-# 4. 給電点（Feed Port）の配置（隙間に配置）
+# 5. 給電点（Feed Port）の配置（隙間に配置）
 # ==========================================
 # 上部電極と下部電極の隙間にカスタム波形ソースを置きます。
 # `voltage_waveform` の内容を変更すれば任意波形を入力できます。
+# 本来の給電点は上部と下部電極の間のギャップ領域です。
 src = mp.Source(
     mp.CustomSource(src_func=voltage_waveform, center_frequency=frequency, fwidth=0.01),
     component=mp.Ey,
-    center=mp.Vector3(0, 2.75, 0),
-    size=mp.Vector3(1.0, 0.4, 0)
+    center=mp.Vector3(0, 0.0, 0),
+    size=mp.Vector3(3.0, 0.4, 0)
 )
 
-# 全周をPMLで囲み、不要な反射を低減します。
-pml_layers = [mp.PML(1.0)]
+# 左右のみPMLにして、上下は金属導波管壁とします。
+pml_layers = [mp.PML(2.0, direction=mp.X)]
 
 
 # ==========================================
-# 5. シミュレーション実行と可視化
+# 6. シミュレーション実行と可視化
 # ==========================================
 sim = mp.Simulation(
     cell_size=cell,
@@ -100,11 +123,19 @@ x_coords = np.linspace(-cell_x / 2, cell_x / 2, nx)
 y_coords = np.linspace(-cell_y / 2, cell_y / 2, ny)
 X, Y = np.meshgrid(x_coords, y_coords, indexing='ij')
 
+# 金属領域をマスクして描画すると、導体内部の非物理的な数値表示を避けられます。
+polygon_top = Path([(v.x, v.y) for v in top_vertices])
+polygon_bottom = Path([(v.x, v.y) for v in bottom_vertices])
+points = np.vstack((X.ravel(), Y.ravel())).T
+mask = polygon_top.contains_points(points) | polygon_bottom.contains_points(points)
+mask = mask.reshape(X.shape)
+e_mag_plot = np.ma.masked_where(mask, e_mag)
+
 # ===============================================================================
 # 7. 結果の表示
 # ===============================================================================
 plt.figure(figsize=(10, 5))
-contour = plt.contourf(X, Y, e_mag, levels=40, cmap='jet')
+contour = plt.contourf(X, Y, e_mag_plot, levels=40, cmap='jet')
 plt.colorbar(contour, label="Electric Field Magnitude |E|")
 plt.title("Electric Field Magnitude (|E|) with Metal Electrodes")
 plt.xlabel("X")
