@@ -77,15 +77,17 @@ sim.run(until=200)
 # 5. 電界データの抽出と可視化
 # ==========================================
 # Ez電界の2次元配列を取得
-ez_data = sim.get_ez_array()
+ez_data = sim.get_array(component=mp.Ez)
 
 # プロット
 plt.figure(figsize=(10, 5))
 # 構造のレイアウトを背景に重ねる
 sim.plot2D()
-# 電界分布をカラーマップで表示 (シミュレーション終了時点の瞬間値)
-plt.imshow(ez_data.T, cmap='RdBu', vspace=np.min(ez_data), vmax=np.max(ez_data),
+
+# 電界分布をカラーマップで表示
+# ※データの最小・最大値を動的に取得するために vmin, vmax に修正しています
+plt.imshow(ez_data.T, cmap='RdBu', vmin=np.min(ez_data), vmax=np.max(ez_data),
            extent=[-cell_x/2, cell_x/2, -cell_y/2, cell_y/2], origin='lower', alpha=0.6)
 plt.colorbar(label="Electric Field (Ez)")
 plt.title("E-Field Distribution with Electrodes")
-plt.show()
+plt.savefig("test_meep.png")
