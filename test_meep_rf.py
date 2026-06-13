@@ -71,18 +71,26 @@ sim = mp.Simulation(
 # 信号が電極を伝わり、導波管内に広がっていく様子を計算
 sim.run(until=100)
 
-# 電界（Ey）の取得
+# ==========================================
+# 5. 電界（Ex, Ey）データの抽出と絶対値の計算
+# ==========================================
+# 【修正①】EyだけでなくExも取得して絶対値を計算します。
+# 電界ベクトルの絶対値 Magnitude |E| = sqrt(Ex^2 + Ey^2) を計算
 ey_data = sim.get_array(component=mp.Ey)
+ex_data = sim.get_array(component=mp.Ex)
+e_mag = np.sqrt(ey_data**2 + ex_data**2)
 
 # プロット
 plt.figure(figsize=(10, 5))
-sim.plot2D() # 幾何構造の描画（テーパー形状が確認できます）
+sim.plot2D()  # 幾何構造の描画（PEC内部は黒くなります）
 
-# 電界分布を重ね書き（残っている電界の最大・最小に合わせて自動スケール）
-plt.imshow(ey_data.T, cmap='RdBu', vmin=np.min(ey_data), vmax=np.max(ey_data),
-           extent=[-cell_x/2, cell_x/2, -cell_y/2, cell_y/2], origin='lower', alpha=0.6)
-plt.colorbar(label="Electric Field (Ey)")
-plt.title("Realistic RF Feed with Custom Electrode Shape & Signal")
+# 電界強度の分布を重ね書き
+# 【修正②】カラーマップを電界強度集中が見やすい 'magma' に変更します。
+# 【修正③】絶対値なので vmin=0 に設定します。
+plt.contourf(e_mag.T, cmap='magma')
+
+plt.colorbar(label="Electric Field Magnitude (|E|)")
+plt.title("Realistic RF Feed with Custom Electrode Shape & Magnitude Plot")
 plt.xlabel("X")
 plt.ylabel("Y")
 plt.savefig("test_meep_rf.png")
