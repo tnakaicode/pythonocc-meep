@@ -99,8 +99,92 @@ pml_layers = [mp.PML(2.0, direction=mp.X)]
 
 
 # ==========================================
-# 6. シミュレーション実行と可視化
+# 6. シミュレーション実行と可視化（PVD・VTK一括出力）
 # ==========================================
+
+step_counter = 0
+vtk_initialized = False
+pec_flag = None
+nx, ny = 0, 0
+dx, dy = 0, 0
+
+# 💡 時間とファイル名のペアを記録するリスト
+time_history = []
+
+def output_vtk_step(sim):
+    global step_counter, vtk_initialized, pec_flag, nx, ny, dx, dy, time_history
+    
+    ex_data = sim.get_array(center=mp.Vector3(), size=sim.cell_size, component=mp.Ex)
+    ey_data = sim.get_array(center=mp.Vector3(), size=sim.cell_size, component=mp.Ey)
+    e_mag = np.sqrt(ex_data**2 + ey_data**2)
+    
+    if not vtk_initialized:
+        nx, ny = e_mag.shape
+        x_coords = np.linspace(-cell_x / 2, cell_x / 2, nx)
+        y_coords = np.linspace(-cell_y / 2, cell_y / 2, ny)
+        X_local, Y_local = np.meshgrid(x_coords, y_coords, indexing='ij')
+        
+        pec_flag = np.zeros_like(e_mag)
+        wall_mask = (Y_local >= cell_y / 2 - wall_thickness) | (Y_local <= -cell_y / 2 + wall_thickness)
+        pq_top = Path([(v.x, v.y) for v in top_vertices])
+        pq_bottom = Path([(v.x, v.y) for v in bottom_vertices])
+        points = np.vstack((X_local.ravel(), Y_local.ravel())).T
+        mask_top = pq_top.contains_points(points).reshape(X_local.shape)
+        mask_bottom = pq_bottom.contains_points(points).reshape(X_local.shape)
+        pec_flag[mask_top | mask_bottom | wall_mask] = 1.0
+        
+        dx = cell_x / (nx - 1) if nx > 1 else 1.0
+        dy = cell_y / (ny - 1) if ny > 1 else 1.0
+        vtk_initialized = True
+
+    current_time = sim.meep_time()
+    metadata = f"time:{current_time:.2f} wave:{waveform_type} freq:{frequency} res:{resolution}"
+    metadata = metadata[:255]
+    
+    # 💡 後でPVDファイルに紐付けるため、ファイル名単体と時間を記録
+    filename_local = f"test_meep_rf_{step_counter:06d}.vtk"
+    vtk_path = f"{tempdir}{filename_local}"
+    time_history.append((current_time, filename_local))
+    
+    with open(vtk_path, "w") as f:
+        f.write("# vtk DataFile Version 3.0\n")
+        f.write(f"{metadata}\n")
+        f.write("ASCII\n")
+        f.write("DATASET STRUCTURED_POINTS\n")
+        f.write("DIMENSIONS {} {} 1\n".format(nx, ny))
+        f.write("ORIGIN {} {} 0.0\n".format(-cell_x / 2, -cell_y / 2))
+        f.write("SPACING {} {} 1.0\n".format(dx, dy))
+        f.write("POINT_DATA {}\n".format(nx * ny))
+        
+        f.write("SCALARS E_magnitude float 1\n")
+        f.write("LOOKUP_TABLE default\n")
+        for j in range(ny):
+            for i in range(nx):
+                f.write(f"{float(e_mag[i, j]):.6f}\n")
+                
+        f.write("SCALARS Ex float 1\n")
+        f.write("LOOKUP_TABLE default\n")
+        for j in range(ny):
+            for i in range(nx):
+                f.write(f"{float(ex_data[i, j]):.6f}\n")
+                
+        f.write("SCALARS Ey float 1\n")
+        f.write("LOOKUP_TABLE default\n")
+        for j in range(ny):
+            for i in range(nx):
+                f.write(f"{float(ey_data[i, j]):.6f}\n")
+                
+        f.write("SCALARS Geometry_PEC float 1\n")
+        f.write("LOOKUP_TABLE default\n")
+        for j in range(ny):
+            for i in range(nx):
+                f.write(f"{float(pec_flag[i, j]):.1f}\n")
+                
+    print(f"Saved: {vtk_path} (t={current_time:.2f})")
+    step_counter += 1
+
+
+# --- シミュレーション実行 ---
 sim = mp.Simulation(
     cell_size=cell,
     boundary_layers=pml_layers,
@@ -109,9 +193,25 @@ sim = mp.Simulation(
     resolution=resolution
 )
 
-# 信号が電極を伝わり、導波管内に広がっていく様子を計算
-sim.run(until=200)
+sim.run(
+    mp.at_every(2.0, output_vtk_step),
+    until=200
+)
 
+# ==========================================
+# 💡 【追加】すべてのVTKを1つに束ねる PVD ファイルの作成
+# ==========================================
+pvd_path = f"{tempdir}test_meep_rf.pvd"
+with open(pvd_path, "w") as f:
+    f.write('<?xml version="1.0"?>\n')
+    f.write('<VTKFile type="Collection" version="0.1" byte_order="LittleEndian">\n')
+    f.write('  <Collection>\n')
+    for t, fname in time_history:
+        f.write(f'    <DataSet timestep="{t}" group="" part="0" file="{fname}"/>\n')
+    f.write('  </Collection>\n')
+    f.write('<</VTKFile>\n')
+
+print(f"\n✨ [完了] 全データを束ねた親玉ファイルを作成しました: {pvd_path}")
 # ==========================================
 # 6. 電界（Ex, Ey）データの抽出と絶対値の計算
 # ==========================================
