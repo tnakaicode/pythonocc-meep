@@ -12,7 +12,10 @@ wget -r -np -l 0 https://flex.phys.tohoku.ac.jp/~maru/drive-open/
 install meep
 
 ```bash
-conda create -c conda-forge -n meep python=3.9 pymeep=*=mpi_mpich* 
+Xvfb :99 -screen 0 1024x768x24 &
+xvfb-run --auto-servernum --server-args="-screen 0 1024x768x24"
+
+conda create -c conda-forge -n meep python=3.13 pymeep=*=mpi_mpich* 
 #conda install r-nloptr
 pip install meshio[all]
 pip install autograd bempp-cl necpp scikit-fdiff[interactive,numba] docopt
