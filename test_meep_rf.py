@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.path import Path
 
+tempdir = "/mnt/win_temp/"
+
 # ==========================================
 # 1. 電圧信号（時間波形 V(t)）の定義
 # ==========================================
@@ -152,6 +154,114 @@ plt.gca().add_patch(patches.Polygon(
     facecolor='none', edgecolor='white', linewidth=1.5
 ))
 
-plt.savefig("test_meep_rf.png", dpi=200)
+plt.savefig(tempdir + "test_meep_rf.png", dpi=200)
 plt.close()
 print("Saved: test_meep_rf.png")
+
+# ==========================================
+# 8. 入力波形のプロット出力
+# ==========================================
+time_points = np.linspace(0.0, 10.0 / frequency, 2000)
+voltage_values = np.array([voltage_waveform(t) for t in time_points])
+plt.figure(figsize=(8, 3))
+plt.plot(time_points, voltage_values, color="tab:blue")
+plt.title("Input Voltage Waveform")
+plt.xlabel("Time")
+plt.ylabel("Voltage")
+plt.grid(True, linestyle="--", alpha=0.5)
+plt.tight_layout()
+plt.savefig(tempdir + "test_meep_rf_waveform.png", dpi=200)
+plt.close()
+print("Saved: test_meep_rf_waveform.png")
+
+# ==========================================
+# 9. 電極形状・導波管壁の図として出力
+# ==========================================
+plt.figure(figsize=(8, 4))
+ax = plt.gca()
+# 電極と壁の描画
+ax.add_patch(patches.Polygon(
+    [(v.x, v.y) for v in top_vertices], closed=True,
+    facecolor="lightgray", edgecolor="black", linewidth=1.5, label="Top Electrode"
+))
+ax.add_patch(patches.Polygon(
+    [(v.x, v.y) for v in bottom_vertices], closed=True,
+    facecolor="lightgray", edgecolor="black", linewidth=1.5, label="Bottom Electrode"
+))
+ax.add_patch(patches.Rectangle(
+    (-cell_x / 2, cell_y / 2 - wall_thickness), cell_x, wall_thickness,
+    facecolor="silver", edgecolor="black", linewidth=1.0, label="Waveguide Wall"
+))
+ax.add_patch(patches.Rectangle(
+    (-cell_x / 2, -cell_y / 2), cell_x, wall_thickness,
+    facecolor="silver", edgecolor="black", linewidth=1.0
+))
+ax.add_patch(patches.Rectangle(
+    (-1.5, -0.2), 3.0, 0.4,
+    facecolor="none", edgecolor="red", linewidth=1.5, linestyle="--", label="Source Region"
+))
+ax.set_title("Electrode Geometry and Waveguide Walls")
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.set_xlim(-cell_x / 2, cell_x / 2)
+ax.set_ylim(-cell_y / 2, cell_y / 2)
+ax.set_aspect("equal", adjustable="box")
+ax.legend(loc="upper right")
+plt.grid(True, linestyle="--", alpha=0.3)
+plt.tight_layout()
+plt.savefig(tempdir + "test_meep_rf_geometry.png", dpi=200)
+plt.close()
+print("Saved: test_meep_rf_geometry.png")
+
+# ==========================================
+# 10. VTK 出力(フィールド・幾何形状・入力条件付き)
+# ==========================================
+pec_flag = np.zeros_like(e_mag)
+wall_mask = (Y >= cell_y / 2 - wall_thickness) | (Y <= -cell_y / 2 + wall_thickness)
+pq_top = Path([(v.x, v.y) for v in top_vertices])
+pq_bottom = Path([(v.x, v.y) for v in bottom_vertices])
+points = np.vstack((X.ravel(), Y.ravel())).T
+mask_top = pq_top.contains_points(points).reshape(X.shape)
+mask_bottom = pq_bottom.contains_points(points).reshape(X.shape)
+pec_flag[mask_top | mask_bottom | wall_mask] = 1.0
+
+vtk_path = tempdir + "test_meep_rf.vtk"
+with open(vtk_path, "w") as f:
+    f.write("# vtk DataFile Version 3.0\n")
+    f.write("Meep RF simulation result with geometry and input conditions\n")
+    f.write("ASCII\n")
+    f.write("# waveform_type: {}\n".format(waveform_type))
+    f.write("# frequency: {}\n".format(frequency))
+    f.write("# voltage_amplitude: {}\n".format(voltage_amplitude))
+    f.write("# ramp_time: {}\n".format(ramp_time))
+    f.write("# resolution: {}\n".format(resolution))
+    f.write("# cell_x: {}\n".format(cell_x))
+    f.write("# cell_y: {}\n".format(cell_y))
+    f.write("# pml_x_thickness: {}\n".format(2.0))
+    f.write("# simulation_time: {}\n".format(200.0))
+    f.write("DATASET STRUCTURED_POINTS\n")
+    f.write("DIMENSIONS {} {} 1\n".format(nx, ny))
+    f.write("ORIGIN {} {} 0.0\n".format(-cell_x / 2, -cell_y / 2))
+    f.write("SPACING {} {} 1.0\n".format(cell_x / nx, cell_y / ny))
+    f.write("POINT_DATA {}\n".format(nx * ny))
+    f.write("SCALARS E_magnitude float 1\n")
+    f.write("LOOKUP_TABLE default\n")
+    for j in range(ny):
+        for i in range(nx):
+            f.write(f"{float(e_mag[i, j]):.6f}\n")
+    f.write("SCALARS Ex float 1\n")
+    f.write("LOOKUP_TABLE default\n")
+    for j in range(ny):
+        for i in range(nx):
+            f.write(f"{float(ex_data[i, j]):.6f}\n")
+    f.write("SCALARS Ey float 1\n")
+    f.write("LOOKUP_TABLE default\n")
+    for j in range(ny):
+        for i in range(nx):
+            f.write(f"{float(ey_data[i, j]):.6f}\n")
+    f.write("SCALARS Geometry_PEC float 1\n")
+    f.write("LOOKUP_TABLE default\n")
+    for j in range(ny):
+        for i in range(nx):
+            f.write(f"{float(pec_flag[i, j]):.1f}\n")
+print(f"Saved: {vtk_path}")
